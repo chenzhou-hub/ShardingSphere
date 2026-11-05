@@ -1,0 +1,24 @@
+# 单 MySQL 实例（两个 database：sharding_db_0 / sharding_db_1）
+# 使用：docker compose -f docker-compose-single.yml up -d
+# 启动应用前设置环境变量：
+#   SS_DS0_PORT=3306  SS_DS1_PORT=3306  （host/账号默认值即指向 127.0.0.1/root/123456，与 sharding.yaml 一致）
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: mysql-sharding
+    environment:
+      MYSQL_ROOT_PASSWORD: root123
+      TZ: Asia/Shanghai
+    ports:
+      - "3306:3306"
+    volumes:
+      - ./sql/init-single-mysql.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_general_ci
+      - --max_connections=800
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-uroot", "-proot123"]
+      interval: 5s
+      timeout: 3s
+      retries: 20

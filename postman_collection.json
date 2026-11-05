@@ -1,0 +1,167 @@
+{
+	"info": {
+		"_postman_id": "b7e3a1c2-0000-4a1a-9f01-shardingdemo1",
+		"name": "ShardingSphere Demo",
+		"description": "Spring Boot 3 + ShardingSphere 分库分表演示接口",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "http://localhost:8080",
+			"type": "string"
+		},
+		{
+			"key": "userId",
+			"value": "101",
+			"type": "string"
+		},
+		{
+			"key": "orderId",
+			"value": "1",
+			"type": "string"
+		}
+	],
+	"item": [
+		{
+			"name": "订单",
+			"item": [
+				{
+					"name": "创建订单（返回雪花ID）",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"userId\": {{userId}},\n  \"amount\": 99.90,\n  \"status\": \"CREATED\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/orders",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "orders"]
+						},
+						"description": "分片路由：库 = user_id % 2，表 = order_id % 4（雪花算法生成）"
+					}
+				},
+				{
+					"name": "按用户分页查询（精确路由单库）",
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{baseUrl}}/api/orders?userId={{userId}}&pageNo=1&pageSize=10",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "orders"],
+							"query": [
+								{ "key": "userId", "value": "{{userId}}" },
+								{ "key": "pageNo", "value": "1" },
+								{ "key": "pageSize", "value": "10" }
+							]
+						}
+					}
+				},
+				{
+					"name": "单条查询（精确路由库+表）",
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{baseUrl}}/api/orders/{{userId}}/{{orderId}}",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "orders", "{{userId}}", "{{orderId}}"]
+						},
+						"description": "先创建订单，把返回的 orderId 填到集合变量 orderId 再执行"
+					}
+				},
+				{
+					"name": "全路由聚合统计",
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{baseUrl}}/api/orders/count",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "orders", "count"]
+						}
+					}
+				},
+				{
+					"name": "批量下单（user 101~108）",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"userId\": {{userId}},\n  \"amount\": 199.00,\n  \"status\": \"PAID\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/orders",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "orders"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "配置（单表 t_config，不分片）",
+			"item": [
+				{
+					"name": "保存/更新配置",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"value\": \"1000\",\n  \"remark\": \"单用户下单上限\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/configs/order.limit.max",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "configs", "order.limit.max"]
+						}
+					}
+				},
+				{
+					"name": "读取配置",
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{baseUrl}}/api/configs/order.limit.max",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "configs", "order.limit.max"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "健康检查",
+			"item": [
+				{
+					"name": "Actuator Health",
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{baseUrl}}/actuator/health",
+							"host": ["{{baseUrl}}"],
+							"path": ["actuator", "health"]
+						}
+					}
+				}
+			]
+		}
+	]
+}

@@ -1,0 +1,162 @@
+#
+# ShardingSphere-JDBC 配置文件（由 ShardingSphereDriver 的官方 classpath: URL 加载器读取，
+# 不是 Spring 的配置文件，Spring 的 ${} 占位符在这里无效）
+#
+# 官方支持的加载方式（二选一，通过 spring.datasource.url 切换）：
+#   - jdbc:shardingsphere:classpath:sharding.yaml      包内配置（本文件，本地开发用）
+#   - jdbc:shardingsphere:absolutepath:/etc/ss/x.yaml  文件系统外部配置（生产推荐：挂载后
+#     用 SPRING_DATASOURCE_URL 环境变量覆盖 spring.datasource.url 即可切换）
+#
+# 以下为本地默认值；生产环境的地址/密码通过外部配置文件提供，不写死在本文件
+#
+databaseName: order_db
+
+# 运行模式：Standalone=独立运行（元数据存本地），Cluster=集群模式（元数据存 ZooKeeper/etcd）
+mode:
+  type: Standalone
+  # Standalone 模式下元数据持久化仓库：JDBC=内嵌 H2（默认，需要 com.h2database:h2 为 runtime 依赖）
+  repository:
+    type: JDBC
+
+  # ─────────────────────────────────────────────────────────────────────
+  # Cluster 模式（多实例治理，需要时把上面 Standalone 整段注释掉、放开本段）
+  #
+  # 作用：元数据统一存 ZooKeeper，多个应用实例共享同一份账本：
+  #   - 运行时通过 DistSQL/治理台修改配置，全集群热生效，无需重启
+  #   - 多实例变更元数据时通过 ZK 分布式锁互斥，避免脑裂
+  #
+  # 前提（两步缺一不可）：
+  #   1. pom.xml 增加依赖（5.5.2 的 shardingsphere-jdbc 只自带 cluster-mode-core，
+  #      不含 ZK 仓库实现，缺了会报 No implementation class load from SPI ... ZooKeeper）：
+  #        <dependency>
+  #            <groupId>org.apache.shardingsphere</groupId>
+  #            <artifactId>shardingsphere-cluster-mode-repository-zookeeper</artifactId>
+  #            <version>${shardingsphere.version}</version>
+  #        </dependency>
+  #   2. 部署一套 ZooKeeper（3 节点及以上为生产标准）
+  #
+  # 注意：使用 Cluster 模式时，规则/数据源等"账本"以 ZK 上为准，
+  #       本文件的 rules/dataSources 仅在 ZK 上没有数据时做首次初始化；
+  #       后续变更应通过治理入口修改，而不是改本文件。
+  # ─────────────────────────────────────────────────────────────────────
+  # type: Cluster
+  # repository:
+  #   type: ZooKeeper
+  #   props:
+  #     namespace: sharding_demo          # ZK 上的根节点名，多套环境用不同 namespace 隔离
+  #     server-lists: zk1:2181,zk2:2181,zk3:2181   # ZK 集群地址，逗号分隔
+  #     retryIntervalMilliseconds: 500    # ZK 重试间隔
+  #     maxRetries: 3                     # ZK 最大重试次数
+  #     timeToLiveSeconds: 60             # 临时节点存活时间（实例下线判定）
+  #     operationTimeoutMilliseconds: 500 # 单次 ZK 操作超时
+
+# 真实数据源（物理库）定义：每个逻辑数据源对应一个物理 MySQL database
+dataSources:
+  # 数据源 0：物理库 sharding_db_0（承载一半分片表 + 单表 t_config）
+  ds0:
+    # 使用 HikariCP 连接池管理到该物理库的真实连接（与外层 Spring 的 Hikari 池是两层，不要混淆）
+    dataSourceClassName: com.zaxxer.hikari.HikariDataSource
+    # MySQL JDBC 驱动类
+    driverClassName: com.mysql.cj.jdbc.Driver
+    # 物理库连接 URL：参数含义——
+    #   useUnicode+characterEncoding   使用 UTF-8 编码，支持中文
+    #   useSSL=false                   关闭 SSL（内网/本地调试；生产建议开启）
+    #   serverTimezone=Asia/Shanghai   会话时区，避免时间字段偏移 8 小时
+    #   allowPublicKeyRetrieval=true   允许客户端向服务端请求公钥（caching_sha2_password 认证需要）
+    #   rewriteBatchedStatements=true  批量插入合并为多值 INSERT，大幅提升 batch 性能
+    jdbcUrl: 'jdbc:mysql://127.0.0.1:3306/sharding_db_0?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true'
+    # 数据库用户名
+    username: root
+    # 数据库密码（生产环境请使用外部配置文件，勿将真实密码打包进应用）
+    password: 123456
+    # 该池最大连接数（ds0/ds1 指向同一 MySQL 实例时，两池之和不要超过实例 max_connections）
+    maximumPoolSize: 20
+    # 池中最少保持的空闲连接数（应对突发流量，避免临时建连）
+    minimumIdle: 5
+    # 获取连接超时时间 30 秒
+    connectionTimeout: 30000
+    # 空闲连接存活时间 10 分钟（超出 minimumIdle 的空闲连接被回收）
+    idleTimeout: 600000
+    # 连接最大存活时间 30 分钟（必须小于 MySQL wait_timeout，防止使用已被服务端断开的连接）
+    maxLifetime: 1800000
+    # 连接池名称：日志/监控（JMX、Micrometer）中区分两个池用
+    poolName: ss-ds0
+  # 数据源 1：物理库 sharding_db_1（承载另一半分片表；可与 ds0 同实例不同库，也可完全独立实例）
+  ds1:
+    dataSourceClassName: com.zaxxer.hikari.HikariDataSource
+    driverClassName: com.mysql.cj.jdbc.Driver
+    jdbcUrl: 'jdbc:mysql://127.0.0.1:3306/sharding_db_1?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true'
+    username: root
+    password: 123456
+    maximumPoolSize: 20
+    minimumIdle: 5
+    connectionTimeout: 30000
+    idleTimeout: 600000
+    maxLifetime: 1800000
+    poolName: ss-ds1
+
+# 数据分片等规则定义（!SHARDING / !SINGLE 等是 ShardingSphere YAML 的 tag 语法）
+rules:
+  # 分片规则：t_order 按 user_id 分库(2库)、按 order_id 分表(每库4表)，共 2 x 4 = 8 张物理表
+  - !SHARDING
+    # 逻辑表 -> 真实表映射
+    tables:
+      # 逻辑表名（Java 代码/SQL 中统一使用这个名字）
+      t_order:
+        # 真实数据节点：行内表达式枚举出 ds0.t_order_0 ~ ds1.t_order_3 共 8 个节点
+        actualDataNodes: ds${0..1}.t_order_${0..3}
+        # 分库策略（决定 SQL 落到哪个库）
+        databaseStrategy:
+          # standard：单分片键的标准分片（还有 complex 复合键 / hint 强制路由 / none 广播）
+          standard:
+            # 分库键：user_id % 2，同一用户的订单永远落在同一个库
+            shardingColumn: user_id
+            # 引用下方 shardingAlgorithms 中定义的算法名
+            shardingAlgorithmName: t-order-db-mod
+        # 分表策略（决定在该库内落到哪张物理表）
+        tableStrategy:
+          standard:
+            # 分表键：order_id % 4（插入时 order_id 先由雪花算法生成，再据此选表）
+            shardingColumn: order_id
+            shardingAlgorithmName: t-order-table-mod
+        # 主键生成策略：分布式主键（分表后不能用数据库自增，否则各表主键会重复）
+        keyGenerateStrategy:
+          # 对 order_id 列生成；应用插入时不赋值，ShardingSphere 生成后回填到实体
+          column: order_id
+          # 引用下方 keyGenerators 中定义的生成器名
+          keyGeneratorName: snowflake
+    # 分片算法定义
+    # 注意：tables（手工枚举节点）方式只能用标准分片算法（INLINE 等），
+    #       MOD/HASH_MOD 等属于自动分片算法，只能配在 autoTables 下，混用会启动报错
+    shardingAlgorithms:
+      # 分库算法：行内表达式取模
+      t-order-db-mod:
+        # INLINE = Groovy 表达式路由：user_id % 2 -> ds0 / ds1
+        # 注意：数据源名是 ds0/ds1（无下划线），表达式必须与名字完全一致，
+        #       算出的名字不在数据源列表中会导致 "No sharding database route info"
+        type: INLINE
+        props:
+          algorithm-expression: ds${user_id % 2}
+      # 分表算法：行内表达式取模
+      t-order-table-mod:
+        # order_id % 4 -> t_order_0 ~ t_order_3
+        type: INLINE
+        props:
+          algorithm-expression: t_order_${order_id % 4}
+    # 分布式主键生成器定义
+    keyGenerators:
+      # 雪花算法：64bit = 时间戳 + workerId + 序列，趋势递增、全局唯一
+      snowflake:
+        type: SNOWFLAKE
+
+  # 单表规则：不分片、整表落在某一个库的表
+  - !SINGLE
+    tables:
+      # t_config 固定绑定在 ds0（单实例多库布局时即 sharding_db_0 库内的 t_config）
+      # 声明后所有对 t_config 的 SQL 固定路由到 ds0，不会被当成分片表处理
+      - 'ds0.t_config'
+
+# ShardingSphere 全局属性
+props:
+  # 是否在日志中打印解析/路由/改写后的真实 SQL 及命中节点（排障利器，生产务必关闭）
+  sql-show: true
